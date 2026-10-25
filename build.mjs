@@ -8,17 +8,12 @@ await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
 
 async function copyStatic() {
-  await Promise.all([
-    cp('src/manifest.json', `${outdir}/manifest.json`),
-    cp('src/sidepanel/index.html', `${outdir}/sidepanel.html`),
-    cp('src/sidepanel/styles.css', `${outdir}/sidepanel.css`),
-  ]);
+  await cp('src/manifest.json', `${outdir}/manifest.json`);
 }
 
 const options = {
   entryPoints: {
     background: 'src/background.ts',
-    sidepanel: 'src/sidepanel/main.ts',
   },
   outdir,
   bundle: true,
