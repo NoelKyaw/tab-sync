@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Tab Sync</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="head">
+    <label class="search">
+      <span aria-hidden="true">⌕</span>
+      <input id="q" type="search" placeholder="Search tabs and pins" autocomplete="off" spellcheck="false" autofocus>
+      <span class="kbd" id="q-hint">⌘K</span>
+    </label>
+  </header>
+  <main id="list" tabindex="-1"></main>
+  <footer class="foot" id="foot"></footer>
+  <div id="menu" class="menu" role="menu" hidden></div>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tab Sync — Side Panel Wireframe</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: #000; background: #fff;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .06em; }
+  p.lede { margin: 0 0 32px; max-width: 720px; }
+  .frame { margin-bottom: 56px; }
+  .row-frames { display: flex; gap: 48px; align-items: flex-start; flex-wrap: wrap; }
+  .notes { max-width: 300px; padding-top: 4px; }
+  .notes ol { margin: 0; padding-left: 20px; }
+  .notes li { margin-bottom: 8px; }
+  .n { display: inline-block; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+       background: #000; color: #fff; font-size: 10px; line-height: 16px; text-align: center; font-weight: 600; }
+
+  /* ---------- Browser shell (context frame) ---------- */
+  .browser { border: 1.5px solid #000; width: 560px; height: 360px; display: flex; flex-direction: column; }
+  .chrome-bar { height: 28px; border-bottom: 1px solid #000; display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 11px; }
+  .dot { width: 8px; height: 8px; border: 1px solid #000; border-radius: 50%; }
+  .chrome-bar .url { flex: 1; border: 1px solid #000; height: 16px; margin-left: 8px; padding: 0 6px; line-height: 14px; }
+  .browser-body { flex: 1; display: flex; min-height: 0; }
+  .page { flex: 1; position: relative; border-right: 1px solid #000;
+          background:
+            linear-gradient(to top right, transparent calc(50% - .5px), #000 50%, transparent calc(50% + .5px)),
+            linear-gradient(to top left,  transparent calc(50% - .5px), #000 50%, transparent calc(50% + .5px)); }
+  .page span { position: absolute; top: 8px; left: 8px; background: #fff; padding: 0 4px; font-size: 11px; }
+  .browser .panel { width: 200px; height: auto; border: 0; font-size: 10px; }
+  .browser .panel .tab, .browser .panel .pin { height: 20px; }
+  .browser .panel .fav { width: 10px; height: 10px; }
+
+  /* ---------- Side panel ---------- */
+  .panel { width: 340px; height: 640px; border: 1.5px solid #000; display: flex; flex-direction: column; background: #fff; }
+  .p-head { padding: 10px; border-bottom: 1px solid #000; }
+  .search { border: 1px solid #000; height: 30px; display: flex; align-items: center; padding: 0 8px; gap: 6px; }
+  .search .q { flex: 1; }
+  .search .muted, .muted { color: #000; opacity: .45; }
+  .kbd { border: 1px solid #000; padding: 0 4px; font-size: 10px; border-radius: 3px; }
+  .p-body { flex: 1; overflow: hidden; }
+  .sec { border-bottom: 1px solid #000; }
+  .sec-h { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px;
+           font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .sec-h .act { font-weight: 400; text-transform: none; letter-spacing: 0; text-decoration: underline; }
+  .sec-h.collapsed { padding-bottom: 8px; }
+  .list { padding: 0 4px 6px; }
+  .tab, .pin { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; white-space: nowrap; }
+  .fav { width: 14px; height: 14px; border: 1px solid #000; flex: none; }
+  .title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .meta { font-size: 10px; opacity: .55; }
+  .tab.active { background: #000; color: #fff; }
+  .tab.active .fav { border-color: #fff; }
+  .tab.hover { outline: 1px dashed #000; outline-offset: -1px; }
+  .tab.sleeping .title { opacity: .5; }
+  .badge { font-size: 9px; border: 1px solid currentColor; padding: 0 4px; border-radius: 8px; }
+  .btn { border: 1px solid #000; padding: 1px 6px; font-size: 10px; background: #fff; color: #000; }
+  .x { width: 16px; text-align: center; }
+
+  /* pinned grid (Arc-style favorites) */
+  .pin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 2px 10px 10px; }
+  .pin-tile { border: 1px solid #000; height: 40px; display: flex; align-items: center; justify-content: center; position: relative; }
+  .pin-tile .fav { width: 16px; height: 16px; }
+  .pin-tile .state { position: absolute; bottom: 2px; right: 3px; font-size: 9px; }
+  .pin-tile.here { border-width: 2px; }
+  .pin-tile.empty { border-style: dashed; font-size: 18px; }
+
+  .state-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #000; flex: none; }
+  .state-dot.here { background: #000; }
+  .state-dot.elsewhere { background: linear-gradient(90deg, #000 50%, #fff 50%); }
+
+  .p-foot { border-top: 1px solid #000; padding: 6px 10px; display: flex; justify-content: space-between; font-size: 10px; }
+
+  /* context menu */
+  .menu { position: absolute; width: 200px; border: 1.5px solid #000; background: #fff; padding: 4px 0; box-shadow: 4px 4px 0 #000; z-index: 2; }
+  .menu div { padding: 4px 12px; display: flex; justify-content: space-between; }
+  .menu hr { border: 0; border-top: 1px solid #000; margin: 4px 0; }
+  .menu .hl { background: #000; color: #fff; }
+  .rel { position: relative; }
+
+  /* search results */
+  .res-h { padding: 8px 10px 2px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  mark { background: #000; color: #fff; padding: 0 1px; }
+  .tab.active mark { background: #fff; color: #000; }
+
+  .legend { display: grid; grid-template-columns: 24px 1fr; gap: 6px 8px; align-items: center; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Tab Sync: Side Panel Wireframe</h1>
+<p class="lede">Black-and-white wireframe of the Dia side panel. The panel is identical in every window. Pinned items are shared across windows. Each window sees its own tabs first, then the other windows. All data stays local.</p>
+
+<!-- ======================================================= -->
+<div class="frame">
+  <h2>0 · Context: the same panel in two windows</h2>
+  <div class="row-frames">
+    <div>
+      <div class="browser">
+        <div class="chrome-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">github.com/acme/web</span><b>Window 1</b></div>
+        <div class="browser-body">
+          <div class="page"><span>web page</span></div>
+          <div class="panel">
+            <div class="sec"><div class="sec-h">Pinned</div>
+              <div class="list">
+                <div class="pin"><span class="state-dot here"></span><span class="fav"></span><span class="title">Gmail</span></div>
+                <div class="pin"><span class="state-dot elsewhere"></span><span class="fav"></span><span class="title">Linear</span><span class="meta">W2</span></div>
+                <div class="pin"><span class="state-dot"></span><span class="fav"></span><span class="title">Figma</span></div>
+              </div>
+            </div>
+            <div class="sec"><div class="sec-h">This window · 3</div>
+              <div class="list">
+                <div class="tab active"><span class="fav"></span><span class="title">acme/web</span></div>
+                <div class="tab"><span class="fav"></span><span class="title">Gmail</span></div>
+                <div class="tab"><span class="fav"></span><span class="title">MDN · tabs</span></div>
+              </div>
+            </div>
+            <div class="sec"><div class="sec-h collapsed">▸ Window 2 · 2</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="browser">
+        <div class="chrome-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">linear.app/acme</span><b>Window 2</b></div>
+        <div class="browser-body">
+          <div class="page"><span>web page</span></div>
+          <div class="panel">
+            <div class="sec"><div class="sec-h">Pinned</div>
+              <div class="list">
+                <div class="pin"><span class="state-dot elsewhere"></span><span class="fav"></span><span class="title">Gmail</span><span class="meta">W1</span></div>
+                <div class="pin"><span class="state-dot here"></span><span class="fav"></span><span class="title">Linear</span></div>
+                <div class="pin"><span class="state-dot"></span><span class="fav"></span><span class="title">Figma</span></div>
+              </div>
+            </div>
+            <div class="sec"><div class="sec-h">This window · 2</div>
+              <div class="list">
+                <div class="tab active"><span class="fav"></span><span class="title">Linear · acme</span></div>
+                <div class="tab"><span class="fav"></span><span class="title">Notion · Roadmap</span></div>
+              </div>
+            </div>
+            <div class="sec"><div class="sec-h collapsed">▸ Window 1 · 3</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes" style="max-width:none;margin-top:12px">
+    Both windows show the same <b>Pinned</b> list. The dot shows where each pin is open: <b>●</b> in this window, <b>◐</b> in another window (labeled W1/W2), <b>○</b> not open. The rest of the panel shows this window's tabs first, then the other windows.
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<div class="frame">
+  <h2>1 · Default state</h2>
+  <div class="row-frames">
+    <div class="panel">
+      <div class="p-head">
+        <div class="search"><span>⌕</span><span class="q muted">Search tabs, pins, history</span><span class="kbd">⌘K</span></div>
+      </div>
+      <div class="p-body">
+        <!-- Pinned grid -->
+        <div class="sec">
+          <div class="sec-h"><span>Pinned · all windows</span><span class="act">Edit</span></div>
+          <div class="pin-grid">
+            <div class="pin-tile here"><span class="fav"></span><span class="state">●</span></div>
+            <div class="pin-tile"><span class="fav"></span><span class="state">◐</span></div>
+            <div class="pin-tile"><span class="fav"></span><span class="state">○</span></div>
+            <div class="pin-tile"><span class="fav"></span><span class="state">○</span></div>
+            <div class="pin-tile"><span class="fav"></span><span class="state">◐</span></div>
+            <div class="pin-tile"><span class="fav"></span><span class="state">○</span></div>
+            <div class="pin-tile empty">+</div>
+          </div>
+        </div>
+
+        <!-- This window -->
+        <div class="sec">
+          <div class="sec-h"><span>This window · 6</span><span class="act">+ New tab</span></div>
+          <div class="list">
+            <div class="tab active"><span class="fav"></span><span class="title">acme/web · Pull request #482</span><span class="meta">github.com</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">Inbox (12) · you@example.com</span><span class="meta">mail.google.com</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">chrome.tabs · Chrome for Developers</span><span class="meta">developer.chrome.com</span></div>
+            <div class="tab sleeping"><span class="fav"></span><span class="title">IndexedDB API · MDN</span><span class="badge">zz</span></div>
+            <div class="tab sleeping"><span class="fav"></span><span class="title">Vite config reference</span><span class="badge">zz</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">Preact · Getting started</span><span class="meta">preactjs.com</span></div>
+          </div>
+        </div>
+
+        <!-- Other windows -->
+        <div class="sec">
+          <div class="sec-h"><span>▾ Window 2 · 4</span><span class="act">Bring all here</span></div>
+          <div class="list">
+            <div class="tab"><span class="fav"></span><span class="title">Linear · ACME-1204 Sync bug</span><span class="meta">linear.app</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">Notion · Q4 Roadmap</span><span class="meta">notion.so</span></div>
+            <div class="tab sleeping"><span class="fav"></span><span class="title">Figma · Tab Sync v1</span><span class="badge">zz</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">Slack · #design</span><span class="meta">app.slack.com</span></div>
+          </div>
+        </div>
+        <div class="sec"><div class="sec-h collapsed"><span>▸ Window 3 · 9</span><span class="act">Bring all here</span></div></div>
+        <div class="sec"><div class="sec-h collapsed"><span>▸ Recently closed · 25</span><span class="act">History</span></div></div>
+      </div>
+      <div class="p-foot"><span>19 tabs · 3 windows · 3 sleeping</span><span>⚙</span></div>
+    </div>
+
+    <div class="notes">
+      <ol>
+        <li><b>Search</b> covers open tabs in all windows, pins, and local history. Opens with ⌘K.</li>
+        <li><b>Pinned</b> is shared across all windows and stored locally. Tiles show ● here, ◐ in another window, ○ not open. Click: if open here, switch to it. If open in another window, bring it here. If not open, open it here. Only one live copy ever exists.</li>
+        <li><b>This window</b> is always listed first. The active tab is inverted (black).</li>
+        <li><b>zz</b> marks a sleeping tab: the browser has unloaded it to free memory. Clicking it reloads it.</li>
+        <li><b>Other windows</b> are collapsible groups. "Bring all here" merges that window's tabs into this one.</li>
+        <li><b>Recently closed</b> comes from the browser's own list (no extra storage). "History" opens the local history list.</li>
+        <li><b>Footer</b>: counts and settings (auto-sleep timer, history limit).</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<div class="frame">
+  <h2>2 · Hovering a tab from another window, and the right-click menu</h2>
+  <div class="row-frames">
+    <div class="panel rel">
+      <div class="p-head">
+        <div class="search"><span>⌕</span><span class="q muted">Search tabs, pins, history</span><span class="kbd">⌘K</span></div>
+      </div>
+      <div class="p-body">
+        <div class="sec">
+          <div class="sec-h"><span>Pinned · all windows</span><span class="act">Edit</span></div>
+          <div class="list">
+            <div class="pin"><span class="state-dot here"></span><span class="fav"></span><span class="title">Gmail</span><span class="meta">here</span></div>
+            <div class="pin"><span class="state-dot elsewhere"></span><span class="fav"></span><span class="title">Linear</span><span class="meta">in Window 2</span></div>
+            <div class="pin"><span class="state-dot"></span><span class="fav"></span><span class="title">Figma</span><span class="meta">not open</span></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="sec-h"><span>This window · 6</span></div>
+          <div class="list">
+            <div class="tab active"><span class="fav"></span><span class="title">acme/web · Pull request #482</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">Inbox (12) · you@example.com</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">chrome.tabs · Chrome for Developers</span></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="sec-h"><span>▾ Window 2 · 4</span><span class="act">Bring all here</span></div>
+          <div class="list">
+            <div class="tab hover"><span class="fav"></span><span class="title">Linear · ACME-1204 Sync bug</span>
+              <span class="btn">Go ↗</span><span class="btn">Here ⇣</span><span class="x">✕</span></div>
+            <div class="tab"><span class="fav"></span><span class="title">Notion · Q4 Roadmap</span></div>
+            <div class="tab rel"><span class="fav"></span><span class="title">Slack · #design</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="menu" style="top:372px; left:120px;">
+        <div class="hl"><span>Bring to this window</span><span class="kbd" style="border-color:#fff">⇧↵</span></div>
+        <div><span>Go to tab</span><span class="kbd">↵</span></div>
+        <div><span>Move to window ▸</span></div>
+        <hr>
+        <div><span>Pin to all windows</span></div>
+        <div><span>Sleep tab</span></div>
+        <div><span>Duplicate</span></div>
+        <hr>
+        <div><span>Close tab</span><span class="kbd">⌫</span></div>
+      </div>
+      <div class="p-foot" style="margin-top:auto"><span>19 tabs · 3 windows · 3 sleeping</span><span>⚙</span></div>
+    </div>
+
+    <div class="notes">
+      <ol>
+        <li><b>Hover</b> shows two actions:<br><b>Go ↗</b> switches to the tab in its own window.<br><b>Here ⇣</b> moves the tab into this window. This is the Arc-style "the tab comes to you."</li>
+        <li><b>Right-click</b> has the full set of actions. <b>Pin to all windows</b> adds the tab's URL to the shared Pinned list.</li>
+        <li><b>Pinned as a list</b> (alternative to the grid in frame 1) puts the "where is it open" state in text. Pick one: grid or list.</li>
+      </ol>
+      <div class="legend">
+        <span class="state-dot here"></span><span>Open in this window</span>
+        <span class="state-dot elsewhere"></span><span>Open in another window</span>
+        <span class="state-dot"></span><span>Not open (click opens it here)</span>
+        <span class="badge" style="justify-self:start">zz</span><span>Sleeping (unloaded to save memory)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<div class="frame">
+  <h2>3 · Search (⌘K)</h2>
+  <div class="row-frames">
+    <div class="panel">
+      <div class="p-head">
+        <div class="search" style="border-width:2px"><span>⌕</span><span class="q">fig▍</span><span class="muted">esc</span></div>
+      </div>
+      <div class="p-body">
+        <div class="res-h">Open tabs · 2</div>
+        <div class="list">
+          <div class="tab active"><span class="fav"></span><span class="title"><mark>Fig</mark>ma · Tab Sync v1</span><span class="badge">W2</span></div>
+          <div class="tab"><span class="fav"></span><span class="title">Vite con<mark>fig</mark> reference</span><span class="badge">here</span></div>
+        </div>
+        <div class="res-h">Pinned · 1</div>
+        <div class="list">
+          <div class="pin"><span class="state-dot"></span><span class="fav"></span><span class="title"><mark>Fig</mark>ma: Recent files</span><span class="meta">not open</span></div>
+        </div>
+        <div class="res-h">History (local) · 3</div>
+        <div class="list">
+          <div class="tab"><span class="fav"></span><span class="title"><mark>Fig</mark>Jam · Retro board</span><span class="meta">2d ago</span></div>
+          <div class="tab"><span class="fav"></span><span class="title">manifest con<mark>fig</mark> · Chrome docs</span><span class="meta">5d ago</span></div>
+          <div class="tab"><span class="fav"></span><span class="title"><mark>Fig</mark>ma plugin API</span><span class="meta">3w ago</span></div>
+        </div>
+      </div>
+      <div class="p-foot"><span>↑↓ select · ↵ go · ⇧↵ bring here · ⌘↵ new tab</span></div>
+    </div>
+
+    <div class="notes">
+      <ol>
+        <li>Results are grouped as <b>open tabs, then pinned, then history</b>. Open tabs come first so you reuse a tab instead of opening a duplicate.</li>
+        <li>The badge shows which window a tab is in (<b>W2</b>) or <b>here</b>.</li>
+        <li><b>History</b> is stored only on this machine. It keeps up to 2,000 entries or 30 days and deletes older ones automatically.</li>
+        <li>Keyboard-first: arrow keys and Enter, no mouse needed. The footer shows the shortcuts.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<div class="frame">
+  <h2>4 · Settings (⚙)</h2>
+  <div class="row-frames">
+    <div class="panel" style="height:auto">
+      <div class="p-head"><b>← Settings</b></div>
+      <div class="sec">
+        <div class="sec-h">Memory</div>
+        <div class="list" style="padding:4px 10px 10px">
+          <div class="pin"><span class="title">Put inactive tabs to sleep after</span><span class="btn">30 min ▾</span></div>
+          <div class="pin"><span class="title">Never sleep pinned or audible tabs</span><span class="btn">☑</span></div>
+        </div>
+      </div>
+      <div class="sec">
+        <div class="sec-h">History (stored locally)</div>
+        <div class="list" style="padding:4px 10px 10px">
+          <div class="pin"><span class="title">Keep up to</span><span class="btn">2,000 ▾</span></div>
+          <div class="pin"><span class="title">Delete entries older than</span><span class="btn">30 days ▾</span></div>
+          <div class="pin"><span class="title">Using 412 KB</span><span class="btn">Clear history</span></div>
+        </div>
+      </div>
+      <div class="sec" style="border-bottom:0">
+        <div class="sec-h">Layout</div>
+        <div class="list" style="padding:4px 10px 10px">
+          <div class="pin"><span class="title">Pinned style</span><span class="btn">Grid ▾</span></div>
+          <div class="pin"><span class="title">Collapse other windows by default</span><span class="btn">☐</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ol>
+        <li>All settings are stored on this machine; nothing is synced or uploaded.</li>
+        <li>History shows how much space it is using, and can be cleared with one click.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "tab-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arc-style side panel for Dia: see and pull tabs from every window, with pins shared across windows. Local-only.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/**/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.6",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

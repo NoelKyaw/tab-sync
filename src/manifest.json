@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Sync",
+  "version": "0.1.0",
+  "description": "Arc-style side panel: see and pull tabs from every window, with pins shared across windows. Everything stays local.",
+  "minimum_chrome_version": "116",
+  "permissions": ["tabs", "sidePanel", "storage", "favicon", "sessions"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Tab Sync" },
+  "commands": {
+    "open-panel": {
+      "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" },
+      "description": "Open the Tab Sync side panel"
+    }
+  }
+}
