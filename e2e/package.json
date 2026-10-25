@@ -1,0 +1,13 @@
+{
+  "name": "tab-sync-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests for Tab Sync in Chrome for Testing. Build the extension first (npm run build in the repo root).",
+  "scripts": {
+    "test": "node sync.mjs && node restart.mjs && node migrate.mjs && node race.mjs",
+    "stress": "node stress.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}
