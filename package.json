@@ -1,8 +1,8 @@
 {
   "name": "tab-sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Arc-style tabs for Dia: every window shows the same tabs, in the same order. Local-only.",
+  "description": "Arc-style tabs for Dia: every window shows the same regular tabs, in the same order. Local-only.",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",

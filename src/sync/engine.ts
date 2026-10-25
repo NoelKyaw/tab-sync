@@ -10,24 +10,32 @@ import {
   parseGhost,
   planSwap,
   planWindow,
+  type Derived,
   type Entry,
   type Model,
   type Sid,
   type SnapTab,
   type SnapWindow,
   type WindowPlan,
+  v2Leftovers,
 } from './model.ts';
 
 const ENABLED_KEY = 'enabled';
 const SAVED_KEY = 'saved';
 const SESSION_KEY = 'model';
+/** Bumped when stored state changes meaning. 3: pinned tabs are no longer synced. */
+const SCHEMA = 3;
 
 // ---- State ------------------------------------------------------------------
 // The model lives in storage.session (survives service-worker restarts) and
 // its order/entries in storage.local (survives browser restarts).
 
+type Stored<T> = T & { v?: number };
+
 let model: Model | undefined;
 let enabled: boolean | undefined;
+/** State was written by an older version; clean up its leftovers on the next pass. */
+let upgrading = false;
 
 async function isEnabled(): Promise<boolean> {
   enabled ??= ((await chrome.storage.local.get(ENABLED_KEY))[ENABLED_KEY] as boolean | undefined) ?? true;
@@ -36,16 +44,20 @@ async function isEnabled(): Promise<boolean> {
 
 async function getModel(): Promise<Model> {
   if (model) return model;
-  const session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] as Model | undefined;
-  if (session) return (model = session);
-  const saved = (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY] as Pick<Model, 'order' | 'entries'> | undefined;
-  return (model = saved ? { ...saved, tabSid: {} } : emptyModel());
+  const session = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] as Stored<Model> | undefined;
+  if (session) {
+    upgrading = session.v !== SCHEMA;
+    return (model = { order: session.order, entries: session.entries, tabSid: session.tabSid });
+  }
+  const saved = (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY] as Stored<Pick<Model, 'order' | 'entries'>> | undefined;
+  upgrading = !!saved && saved.v !== SCHEMA;
+  return (model = saved ? { order: saved.order, entries: saved.entries, tabSid: {} } : emptyModel());
 }
 
 async function save(): Promise<void> {
   if (!model) return;
-  await chrome.storage.session.set({ [SESSION_KEY]: model });
-  await chrome.storage.local.set({ [SAVED_KEY]: { order: model.order, entries: model.entries } });
+  await chrome.storage.session.set({ [SESSION_KEY]: { v: SCHEMA, ...model } });
+  await chrome.storage.local.set({ [SAVED_KEY]: { v: SCHEMA, order: model.order, entries: model.entries } });
 }
 
 // ---- Telling our own changes from the user's ------------------------------
@@ -141,8 +153,16 @@ async function snapshot(): Promise<SnapWindow[]> {
 async function reconcile(): Promise<void> {
   if (!(await isEnabled())) return;
   if (pendingRemovals > 0) return schedule(100);
-  const prev = await getModel();
-  const windows = await snapshot();
+  let prev = await getModel();
+  let windows = await snapshot();
+  if (upgrading) {
+    const { close, drop } = v2Leftovers(windows, prev);
+    await removeTabs(close);
+    prev = { ...prev, order: prev.order.filter((s) => !drop.has(s)) };
+    for (const sid of drop) delete prev.entries[sid];
+    upgrading = false;
+    windows = await snapshot();
+  }
   const src = source;
   const closedNow = new Set(closed);
   source = undefined;
@@ -155,6 +175,7 @@ async function reconcile(): Promise<void> {
   });
   model = derived.model;
   await removeTabs(derived.close);
+  for (const p of derived.promote) await promote(p);
   await loadIcons(Object.values(model.entries));
   for (const w of windows) await syncWindow(w.id);
   await save();
@@ -174,20 +195,16 @@ async function syncWindow(windowId: number): Promise<void> {
 async function applyPlan(windowId: number, plan: WindowPlan): Promise<void> {
   await removeTabs(plan.close);
   for (const c of plan.create) {
-    const tab = await chrome.tabs.create({ windowId, index: c.index, url: c.url, pinned: c.pinned, active: false });
+    const tab = await chrome.tabs.create({ windowId, index: c.index, url: c.url, active: false });
     if (tab.id !== undefined) {
       model!.tabSid[tab.id] = c.sid;
       mark(expectedRemoval, [tab.id], 3000);
     }
   }
-  for (const p of plan.pin) {
-    mark(ours, [p.tabId], 1000);
-    await chrome.tabs.update(p.tabId, { pinned: p.pinned }).catch(() => {});
-  }
   for (const r of plan.refresh) {
     // Chrome won't navigate a tab to a data: URL, so swap in a fresh stand-in.
     const tab = await chrome.tabs
-      .create({ windowId, index: r.index, url: r.url, pinned: r.pinned, active: r.active })
+      .create({ windowId, index: r.index, url: r.url, active: r.active })
       .catch(() => undefined);
     if (tab?.id === undefined) continue;
     model!.tabSid[tab.id] = model!.tabSid[r.tabId]!;
@@ -196,11 +213,21 @@ async function applyPlan(windowId: number, plan: WindowPlan): Promise<void> {
   }
   for (const id of plan.discard) await chrome.tabs.discard(id).catch(() => {});
   if (plan.reorder) {
-    const { pinned, unpinned, unpinnedIndex } = plan.reorder;
-    mark(ours, [...pinned, ...unpinned], 1000);
-    if (pinned.length) await chrome.tabs.move(pinned, { index: 0 }).catch(() => {});
-    if (unpinned.length) await chrome.tabs.move(unpinned, { index: unpinnedIndex }).catch(() => {});
+    mark(ours, plan.reorder.tabIds, 1000);
+    await chrome.tabs.move(plan.reorder.tabIds, { index: plan.reorder.index }).catch(() => {});
   }
+}
+
+/** The user pinned a stand-in: the page leaves sync and becomes a real pinned tab there. */
+async function promote({ ghost, url, live }: Derived['promote'][number]): Promise<void> {
+  if (!live) {
+    await chrome.tabs.update(ghost.id, { url }).catch(() => {});
+    return;
+  }
+  mark(ours, [live.id], 1000);
+  await chrome.tabs.move(live.id, { windowId: ghost.windowId, index: ghost.index }).catch(() => {});
+  await chrome.tabs.update(live.id, { pinned: true, ...(ghost.active ? { active: true } : {}) }).catch(() => {});
+  await removeTabs([ghost.id]);
 }
 
 async function removeTabs(ids: readonly number[]): Promise<void> {
@@ -280,14 +307,11 @@ async function maybeSwap(windowId: number): Promise<void> {
     await chrome.tabs.update(plan.live, { active: true });
     await removeTabs([plan.ghost]);
   } else {
-    const { live, ghost, pinned } = plan;
+    const { live, ghost } = plan;
     mark(ours, [live.id, ghost.id], 1500);
     await chrome.tabs.move(live.id, { windowId: ghost.windowId, index: ghost.index });
-    // Moving a tab to another window unpins it.
-    if (pinned) await chrome.tabs.update(live.id, { pinned: true });
     await chrome.tabs.update(live.id, { active: true });
     await chrome.tabs.move(ghost.id, { windowId: live.windowId, index: live.index });
-    if (pinned) await chrome.tabs.update(ghost.id, { pinned: true });
     // Keep the other window on the same tab; it swaps back when you return to it.
     if (live.active) await chrome.tabs.update(ghost.id, { active: true });
   }
@@ -356,11 +380,10 @@ export function startSync(): void {
   chrome.tabs.onCreated.addListener((tab) => {
     if (!parseGhost(tabUrl(tab))) schedule();
   });
-  chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  chrome.tabs.onUpdated.addListener((_tabId, change) => {
     // Title-only changes (unread counts, timers) are ignored on purpose: they
     // don't refresh stand-ins, and would keep the service worker awake.
-    if (change.pinned !== undefined && !isMarked(ours, tabId)) userChanged(tab.windowId);
-    else if (change.url !== undefined || change.status === 'complete') schedule();
+    if (change.pinned !== undefined || change.url !== undefined || change.status === 'complete') schedule();
   });
   chrome.tabs.onMoved.addListener((tabId, info) => {
     if (isMarked(ours, tabId)) schedule();
@@ -410,4 +433,7 @@ export function startSync(): void {
     setTimeout(() => void enqueue(() => maybeSwap(windowId)), 150);
   });
   chrome.windows.onCreated.addListener(() => schedule());
+  chrome.windows.onRemoved.addListener((windowId) => {
+    if (focusedWindow === windowId) focusedWindow = undefined;
+  });
 }

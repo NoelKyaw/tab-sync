@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tab Sync",
-  "version": "0.2.0",
-  "description": "Arc-style tabs for Dia: every window shows the same tabs. Hidden copies are unloaded, so nothing loads twice. Everything stays local.",
+  "version": "0.3.0",
+  "description": "Arc-style tabs for Dia: every window shows the same regular tabs. Favorites and pinned tabs are left alone. Everything stays local.",
   "minimum_chrome_version": "116",
   "permissions": ["tabs", "storage", "favicon"],
   "background": { "service_worker": "background.js", "type": "module" },

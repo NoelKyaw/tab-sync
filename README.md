@@ -1,6 +1,8 @@
 # Tab Sync
 
-Arc-style tabs for [Dia](https://www.diabrowser.com) (and any Chromium browser): **every window shows the same tabs, in the same order**, right in the browser's own tab bar. There's no extra panel or sidebar.
+Arc-style tabs for [Dia](https://www.diabrowser.com) (and any Chromium browser): **every window shows the same regular tabs, in the same order**, right in the browser's own tab bar. There's no extra panel or sidebar.
+
+Only regular tabs are synced. Dia's **Favorites** (the icon grid) and **Pinned** tabs are never copied, moved or closed; Dia already shares those across a profile's windows.
 
 ## How it works
 
@@ -17,14 +19,17 @@ What's mirrored to every window:
 | open a tab (once it has loaded) | gets it in the same spot |
 | navigate a tab to another page | follows |
 | drag tabs to reorder them | matches the new order |
-| pin or unpin a tab | matches |
 | close a tab | closes it too |
+| pin a tab (drag it into Pinned) | drops its copy. The page leaves sync and stays pinned where you put it. If you pinned a stand-in, the real page moves there. |
+| unpin a tab | gets it, because it's a regular synced tab again |
 | close a **window** | keeps everything. Pages that were live there reload when you open them. |
 | open a new window | it fills with every synced tab |
 
 New-tab pages and browser pages (`chrome://…`) stay per-window until you go to a real site. Tab groups and incognito windows aren't synced.
 
-**Profiles:** each Dia profile runs its own copy of the extension, so each profile syncs its own windows and never mixes with another profile.
+**Profiles:** each Dia profile runs its own copy of the extension, so each profile syncs its own windows and never mixes with another profile. Load the extension in every profile you want synced.
+
+**Upgrading from v0.2:** v0.2 also synced pinned tabs, which left copies of Favorites and Pinned items in other windows. On first run, v0.3 closes those copies. It only closes stand-ins, never real pages.
 
 **On/off:** click the Tab Sync toolbar icon to pause; the badge shows `off`. Pausing closes stand-ins whose page is open somewhere else. Clicking the icon again re-syncs every window.
 

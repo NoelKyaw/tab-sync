@@ -1,7 +1,8 @@
 // Pure sync logic (no chrome.* calls) so it can be unit-tested in Node.
 //
 // Every synced tab has a sync id (sid). Each window shows every sid, in the
-// same order. Exactly one window holds the live tab for a sid; the others hold
+// same order. Only regular tabs are synced: pinned tabs (Dia's Favorites and
+// Pinned sections) are the browser's own business and are never touched. Exactly one window holds the live tab for a sid; the others hold
 // a stand-in: a self-contained data: page that only carries the title and
 // favicon, and is discarded once loaded.
 //
@@ -16,7 +17,6 @@ export type Sid = string;
 export interface Entry {
   url: string;
   title: string;
-  pinned: boolean;
 }
 
 export interface Model {
@@ -109,8 +109,13 @@ export interface DeriveOptions {
 
 export interface Derived {
   model: Model;
-  /** Tabs of closed sids, in any window. */
+  /** Stand-ins (and, for closed sids, live tabs) to close. */
   close: number[];
+  /**
+   * Stand-ins the user pinned. The page leaves sync and becomes a pinned tab
+   * there: the live tab (if any) moves into the stand-in's spot.
+   */
+  promote: { ghost: SnapTab; sid: Sid; url: string; live?: SnapTab }[];
 }
 
 export function deriveModel(windows: readonly SnapWindow[], prev: Model, opts: DeriveOptions): Derived {
@@ -123,17 +128,40 @@ export function deriveModel(windows: readonly SnapWindow[], prev: Model, opts: D
   const unmapped: SnapTab[] = [];
   const fresh = new Set<Sid>();
 
+  // A synced tab that got pinned leaves sync.
+  const leaving = new Set<Sid>();
+  const promote: Derived['promote'] = [];
+  for (const w of windows) {
+    for (const tab of w.tabs) {
+      if (!tab.pinned) continue;
+      const ghost = parseGhost(tabUrl(tab));
+      const sid = ghost?.sid ?? prev.tabSid[tab.id];
+      if (!sid || closed.has(sid)) continue;
+      if (ghost && !leaving.has(sid)) promote.push({ ghost: tab, sid, url: entries[sid]?.url || ghost.url });
+      else if (ghost) close.push(tab.id);
+      leaving.add(sid);
+    }
+  }
+  for (const sid of leaving) delete entries[sid];
+
   // Stand-ins carry their sid; live tabs are looked up in the previous model.
   for (const w of windows) {
     for (const tab of w.tabs) {
+      if (tab.pinned) continue;
       const ghost = parseGhost(tabUrl(tab));
       const sid = ghost?.sid ?? prev.tabSid[tab.id];
-      if (sid && closed.has(sid)) {
+      if (sid && leaving.has(sid)) {
+        if (ghost) close.push(tab.id);
+        else {
+          const p = promote.find((x) => x.sid === sid);
+          if (p) p.live = tab;
+        }
+      } else if (sid && closed.has(sid)) {
         close.push(tab.id);
       } else if (ghost) {
         tabSid[tab.id] = ghost.sid;
         // A stand-in we don't know about (sync was off, or state was lost): adopt it.
-        entries[ghost.sid] ??= { url: ghost.url, title: ghost.title, pinned: tab.pinned };
+        entries[ghost.sid] ??= { url: ghost.url, title: ghost.title };
       } else if (sid && entries[sid] && !live.has(sid)) {
         live.set(sid, tab);
         tabSid[tab.id] = sid;
@@ -159,7 +187,7 @@ export function deriveModel(windows: readonly SnapWindow[], prev: Model, opts: D
     if (!sid) {
       sid = opts.newSid();
       fresh.add(sid);
-      entries[sid] = { url: tabUrl(tab), title: tab.title || tabUrl(tab), pinned: tab.pinned };
+      entries[sid] = { url: tabUrl(tab), title: tab.title || tabUrl(tab) };
     }
     live.set(sid, tab);
     tabSid[tab.id] = sid;
@@ -174,10 +202,9 @@ export function deriveModel(windows: readonly SnapWindow[], prev: Model, opts: D
     entries[sid] = { ...entries[sid]!, url, title: tab.title || entries[sid]!.title || url };
   }
 
-  // Order: the source window's order (and pin state) wins; everything else keeps its place.
+  // Order: the source window's order wins; everything else keeps its place.
   const src = windows.find((w) => w.id === opts.source);
   const srcTabs = src ? windowTabs(src, tabSid, live) : new Map<Sid, SnapTab>();
-  for (const [sid, tab] of srcTabs) if (entries[sid]) entries[sid].pinned = tab.pinned;
   const order = mergeOrder(
     prev.order.filter((s) => entries[s]),
     seqOf(srcTabs).filter((s) => entries[s]),
@@ -185,7 +212,7 @@ export function deriveModel(windows: readonly SnapWindow[], prev: Model, opts: D
   for (const w of windows) placeNew(order, seqOf(windowTabs(w, tabSid, live)));
   for (const sid of Object.keys(entries)) if (!order.includes(sid)) order.push(sid);
 
-  return { model: { order, entries, tabSid }, close };
+  return { model: { order, entries, tabSid }, close, promote };
 }
 
 /** One tab per sid in a window. A duplicated sid is represented by its live tab. */
@@ -242,26 +269,26 @@ export interface WindowPlan {
   /** Extra stand-ins (a sid shown twice in this window). */
   close: number[];
   /** Missing sids. Apply in order; each index assumes the previous ones were created. */
-  create: { sid: Sid; index: number; pinned: boolean; url: string }[];
-  pin: { tabId: number; pinned: boolean }[];
+  create: { sid: Sid; index: number; url: string }[];
   /** Stand-ins for a page that has since navigated. Replaced in place. */
-  refresh: { tabId: number; index: number; pinned: boolean; active: boolean; url: string }[];
+  refresh: { tabId: number; index: number; active: boolean; url: string }[];
   /** Loaded, hidden stand-ins to unload. */
   discard: number[];
-  /** Synced tabs to put back in canonical order (only when nothing else changes). */
-  reorder?: { pinned: number[]; unpinned: number[]; unpinnedIndex: number };
+  /** Synced tabs to put back in canonical order, starting at `index` (after the pinned tabs). */
+  reorder?: { tabIds: number[]; index: number };
 }
 
 export function isEmptyPlan(p: WindowPlan): boolean {
-  return !p.close.length && !p.create.length && !p.pin.length && !p.refresh.length && !p.discard.length && !p.reorder;
+  return !p.close.length && !p.create.length && !p.refresh.length && !p.discard.length && !p.reorder;
 }
 
 /** Builds the stand-in URL for a sid (the engine supplies the favicon). */
 export type MakeGhost = (sid: Sid, entry: Entry) => string;
 
 export function planWindow(tabs: readonly SnapTab[], model: Model, makeGhost: MakeGhost): WindowPlan {
-  const plan: WindowPlan = { close: [], create: [], pin: [], refresh: [], discard: [] };
+  const plan: WindowPlan = { close: [], create: [], refresh: [], discard: [] };
   const sorted = [...tabs].sort((a, b) => a.index - b.index);
+  const pinnedCount = sorted.filter((t) => t.pinned).length;
   const inOrder = new Set(model.order);
 
   const ghosts = new Map<number, GhostInfo>();
@@ -273,6 +300,7 @@ export function planWindow(tabs: readonly SnapTab[], model: Model, makeGhost: Ma
 
   const chosen = new Map<Sid, SnapTab>();
   for (const tab of sorted) {
+    if (tab.pinned) continue;
     const ghost = ghosts.get(tab.id);
     const sid = sidOf(tab);
     if (!sid || !inOrder.has(sid)) continue;
@@ -284,54 +312,43 @@ export function planWindow(tabs: readonly SnapTab[], model: Model, makeGhost: Ma
     } else if (ghost) plan.close.push(tab.id);
   }
 
-  // Missing sids become stand-ins next to their predecessor.
-  const slots: { sid?: Sid; pinned: boolean }[] = sorted
-    .filter((t) => !plan.close.includes(t.id))
-    .map((t) => ({ sid: sidOf(t), pinned: t.pinned }));
+  // Missing sids become stand-ins next to their predecessor, never among the pinned tabs.
+  const slots: (Sid | undefined)[] = sorted.filter((t) => !plan.close.includes(t.id)).map((t) => (t.pinned ? undefined : sidOf(t)));
   model.order.forEach((sid, i) => {
     if (chosen.has(sid)) return;
-    const entry = model.entries[sid]!;
     const prevSids = new Set(model.order.slice(0, i));
-    let index = -1;
-    for (let k = slots.length - 1; k >= 0; k--) {
-      if (slots[k]!.sid && prevSids.has(slots[k]!.sid!)) {
+    let index = pinnedCount;
+    for (let k = slots.length - 1; k >= pinnedCount; k--) {
+      if (slots[k] && prevSids.has(slots[k]!)) {
         index = k + 1;
         break;
       }
     }
-    const pinnedCount = slots.filter((s) => s.pinned).length;
-    if (index === -1) index = entry.pinned ? 0 : pinnedCount;
-    index = entry.pinned ? Math.min(index, pinnedCount) : Math.max(index, pinnedCount);
-    slots.splice(index, 0, { sid, pinned: entry.pinned });
-    plan.create.push({ sid, index, pinned: entry.pinned, url: makeGhost(sid, entry) });
+    slots.splice(index, 0, sid);
+    plan.create.push({ sid, index, url: makeGhost(sid, model.entries[sid]!) });
   });
 
   for (const [sid, tab] of chosen) {
     const entry = model.entries[sid]!;
-    if (tab.pinned !== entry.pinned) plan.pin.push({ tabId: tab.id, pinned: entry.pinned });
     const ghost = ghosts.get(tab.id);
     if (!ghost) continue;
     if (isStale(ghost, entry)) {
-      plan.refresh.push({ tabId: tab.id, index: tab.index, pinned: tab.pinned, active: tab.active, url: makeGhost(sid, entry) });
+      plan.refresh.push({ tabId: tab.id, index: tab.index, active: tab.active, url: makeGhost(sid, entry) });
     } else if (!tab.active && !tab.discarded && tab.status === 'complete') {
       plan.discard.push(tab.id);
     }
   }
 
-  if (plan.close.length || plan.create.length || plan.pin.length) return plan;
+  if (plan.close.length || plan.create.length) return plan;
 
   // Same tabs, possibly in a different order.
-  const current = sorted.filter((t) => { const sid = sidOf(t); return sid !== undefined && chosen.get(sid) === t; });
+  const current = sorted.filter((t) => {
+    const sid = sidOf(t);
+    return sid !== undefined && chosen.get(sid) === t;
+  });
   const want = model.order.filter((s) => chosen.has(s)).map((s) => chosen.get(s)!);
-  const pinned = want.filter((t) => t.pinned);
-  const unpinned = want.filter((t) => !t.pinned);
-  const same = (a: SnapTab[], b: SnapTab[]) => a.length === b.length && a.every((t, i) => t === b[i]);
-  if (!same(current.filter((t) => t.pinned), pinned) || !same(current.filter((t) => !t.pinned), unpinned)) {
-    plan.reorder = {
-      pinned: pinned.map((t) => t.id),
-      unpinned: unpinned.map((t) => t.id),
-      unpinnedIndex: sorted.filter((t) => t.pinned).length,
-    };
+  if (current.length !== want.length || current.some((t, i) => t !== want[i])) {
+    plan.reorder = { tabIds: want.map((t) => t.id), index: pinnedCount };
   }
   return plan;
 }
@@ -355,7 +372,7 @@ export type SwapPlan =
   /** The live tab is already in this window: show it, drop the stand-in. */
   | { kind: 'focus'; live: number; ghost: number }
   /** Trade places: live tab comes here, stand-in goes where the live tab was. */
-  | { kind: 'swap'; sid: Sid; live: SnapTab; ghost: SnapTab; pinned: boolean };
+  | { kind: 'swap'; sid: Sid; live: SnapTab; ghost: SnapTab };
 
 export function planSwap(windows: readonly SnapWindow[], model: Model, ghost: SnapTab): SwapPlan | undefined {
   const info = parseGhost(tabUrl(ghost));
@@ -364,10 +381,43 @@ export function planSwap(windows: readonly SnapWindow[], model: Model, ghost: Sn
   let live: SnapTab | undefined;
   for (const w of windows) {
     for (const t of w.tabs) {
-      if (model.tabSid[t.id] === info.sid && !parseGhost(tabUrl(t))) live = t;
+      if (model.tabSid[t.id] === info.sid && !t.pinned && !parseGhost(tabUrl(t))) live = t;
     }
   }
   if (!live) return { kind: 'load', tabId: ghost.id, sid: info.sid, url: entry?.url || info.url };
   if (live.windowId === ghost.windowId) return { kind: 'focus', live: live.id, ghost: ghost.id };
-  return { kind: 'swap', sid: info.sid, live, ghost, pinned: entry?.pinned ?? ghost.pinned };
+  return { kind: 'swap', sid: info.sid, live, ghost };
+}
+
+// ---- Cleaning up after v0.2 -------------------------------------------------
+
+/**
+ * v0.2 also synced pinned tabs (Dia's Favorites and Pinned), leaving copies of
+ * them in other windows. Find those copies and the sids behind them. Only
+ * stand-ins are closed, never live tabs.
+ */
+export function v2Leftovers(
+  windows: readonly SnapWindow[],
+  saved: { entries: Record<Sid, Entry & { pinned?: boolean }> },
+): { close: number[]; drop: Set<Sid> } {
+  const pinnedUrls = new Set<string>();
+  for (const w of windows) {
+    for (const t of w.tabs) if (t.pinned && !parseGhost(tabUrl(t))) pinnedUrls.add(normalizeUrl(tabUrl(t)));
+  }
+  const drop = new Set<Sid>();
+  for (const [sid, e] of Object.entries(saved.entries)) {
+    if (e.pinned || pinnedUrls.has(normalizeUrl(e.url))) drop.add(sid);
+  }
+  const close: number[] = [];
+  for (const w of windows) {
+    for (const t of w.tabs) {
+      const ghost = parseGhost(tabUrl(t));
+      if (!ghost) continue;
+      if (t.pinned || drop.has(ghost.sid) || pinnedUrls.has(normalizeUrl(ghost.url))) {
+        close.push(t.id);
+        drop.add(ghost.sid);
+      }
+    }
+  }
+  return { close, drop };
 }

@@ -10,15 +10,17 @@ import {
   placeNew,
   planSwap,
   planWindow,
+  v2Leftovers,
+  type Entry,
   type Model,
   type SnapTab,
   type SnapWindow,
 } from '../src/sync/model.ts';
 
-const make = (sid: string, entry: { url: string; title: string; pinned: boolean }) => ghostUrl(sid, entry);
+const make = (sid: string, entry: Entry) => ghostUrl(sid, entry);
 const page = (name: string) => `https://${name}.example/`;
 
-/** Build windows from a compact spec: 'a' = live tab for page a, '~a' = stand-in for sid a, '*' prefix = pinned. */
+/** Build windows from a compact spec: 'a' = live tab for page a, '~a' = stand-in for sid a, '*' prefix = pinned (Dia's Favorites/Pinned). */
 function windows(spec: Record<number, string[]>, model?: Model): SnapWindow[] {
   let nextId = 1;
   return Object.entries(spec).map(([wid, tabs]) => ({
@@ -28,7 +30,7 @@ function windows(spec: Record<number, string[]>, model?: Model): SnapWindow[] {
       const name = t.replace(/^\*/, '').replace(/^~/, '');
       const isGhost = t.replace(/^\*/, '').startsWith('~');
       const id = Number(wid) * 100 + nextId++;
-      const entry = model?.entries[name] ?? { url: page(name), title: name, pinned };
+      const entry = model?.entries[name] ?? { url: page(name), title: name };
       return {
         id,
         windowId: Number(wid),
@@ -44,22 +46,22 @@ function windows(spec: Record<number, string[]>, model?: Model): SnapWindow[] {
   }));
 }
 
-/** Map live tabs to sid = page name (what a previous pass would have recorded). */
+/** Map unpinned live tabs to sid = page name (what a previous pass would have recorded). */
 function bound(ws: SnapWindow[], model: Model): Model {
   const tabSid = { ...model.tabSid };
   for (const w of ws) {
     for (const t of w.tabs) {
       const ghost = parseGhost(t.url);
-      if (!ghost && t.url?.startsWith('https://')) tabSid[t.id] = new URL(t.url).hostname.split('.')[0]!;
+      if (!ghost && !t.pinned && t.url?.startsWith('https://')) tabSid[t.id] = new URL(t.url).hostname.split('.')[0]!;
     }
   }
   return { ...model, tabSid };
 }
 
-function modelOf(order: string[], pinned: string[] = []): Model {
+function modelOf(order: string[]): Model {
   const m = emptyModel();
   m.order = order;
-  for (const s of order) m.entries[s] = { url: page(s), title: s, pinned: pinned.includes(s) };
+  for (const s of order) m.entries[s] = { url: page(s), title: s };
   return m;
 }
 
@@ -67,7 +69,7 @@ let counter = 0;
 const opts = (extra: object = {}) => ({ newSid: () => `n${++counter}`, ...extra });
 
 test('stand-in URLs round-trip and escape the page title', () => {
-  const entry = { url: 'https://x.example/a?b=1&c=2', title: 'Hello <b> & "bye" -->', pinned: false };
+  const entry = { url: 'https://x.example/a?b=1&c=2', title: 'Hello <b> & "bye" -->' };
   const url = ghostUrl('s1', entry, 'data:image/png;base64,AAA=');
   assert.ok(url.startsWith('data:text/html;charset=utf-8,'));
   assert.deepEqual(parseGhost(url), { sid: 's1', url: entry.url, title: entry.title });
@@ -121,17 +123,17 @@ test('a new tab in one window gets a stand-in in the others, next to its neighbo
   assert.deepEqual(parseGhost(plan.create[0]!.url), { sid: xSid, url: page('x'), title: 'x' });
 });
 
-test('a new window is filled with stand-ins for every synced tab', () => {
-  const prev = modelOf(['a', 'b', 'c'], ['a']);
-  const ws = windows({ 1: ['*a', 'b', 'c'], 2: ['newtab'] });
+test('a new window is filled with stand-ins for every synced tab, after its own pinned tabs', () => {
+  const prev = modelOf(['a', 'b', 'c']);
+  const ws = windows({ 1: ['*fav', 'a', 'b', 'c'], 2: ['*fav', 'newtab'] });
   const { model } = deriveModel(ws, bound(ws, prev), opts());
   const plan = planWindow(ws[1]!.tabs, model, make);
   assert.deepEqual(
-    plan.create.map((c) => [c.sid, c.index, c.pinned]),
+    plan.create.map((c) => [c.sid, c.index]),
     [
-      ['a', 0, true],
-      ['b', 1, false],
-      ['c', 2, false],
+      ['a', 1],
+      ['b', 2],
+      ['c', 3],
     ],
   );
 });
@@ -143,7 +145,15 @@ test('reordering in the source window reorders the others', () => {
   assert.deepEqual(model.order, ['c', 'a', 'b']);
   const plan = planWindow(ws[1]!.tabs, model, make);
   const ids = Object.fromEntries(ws[1]!.tabs.map((t) => [parseGhost(t.url)!.sid, t.id]));
-  assert.deepEqual(plan.reorder, { pinned: [], unpinned: [ids.c, ids.a, ids.b], unpinnedIndex: 0 });
+  assert.deepEqual(plan.reorder, { tabIds: [ids.c, ids.a, ids.b], index: 0 });
+});
+
+test('reordering never moves pinned tabs', () => {
+  const prev = modelOf(['a', 'b']);
+  const ws = windows({ 1: ['*fav1', '*fav2', '~b', '~a'] });
+  const { model } = deriveModel(ws, bound(ws, prev), opts());
+  const plan = planWindow(ws[0]!.tabs, model, make);
+  assert.deepEqual(plan.reorder, { tabIds: [ws[0]!.tabs[3]!.id, ws[0]!.tabs[2]!.id], index: 2 });
 });
 
 test('a window already in order needs nothing', () => {
@@ -163,13 +173,62 @@ test('without a source window, order does not change', () => {
   assert.deepEqual(model.order, ['a', 'b']);
 });
 
-test('pinning in the source window pins everywhere', () => {
+test("pinned tabs (Dia's Favorites and Pinned) are never synced or touched", () => {
+  // Each window has its own pinned tabs; only the regular tab is synced.
+  const ws = windows({ 1: ['*mail', '*docs', 'a'], 2: ['*mail', 'newtab'] });
+  const { model, close, promote } = deriveModel(ws, emptyModel(), opts());
+  assert.deepEqual(Object.values(model.entries).map((e) => e.url), [page('a')]);
+  assert.deepEqual(close, []);
+  assert.deepEqual(promote, []);
+  const plan = planWindow(ws[1]!.tabs, model, make);
+  assert.equal(plan.create.length, 1, 'only the regular tab is mirrored');
+  assert.equal(plan.reorder, undefined);
+  assert.ok(isEmptyPlan(planWindow(ws[0]!.tabs, model, make)));
+});
+
+test('pinning a synced tab takes it out of sync: stand-ins close, the tab stays', () => {
   const prev = modelOf(['a', 'b']);
   const ws = windows({ 1: ['*b', 'a'], 2: ['~a', '~b'] });
-  const { model } = deriveModel(ws, bound(ws, prev), opts({ source: 1 }));
-  assert.equal(model.entries.b!.pinned, true);
-  const plan = planWindow(ws[1]!.tabs, model, make);
-  assert.deepEqual(plan.pin, [{ tabId: ws[1]!.tabs[1]!.id, pinned: true }]);
+  const m = bound(ws, prev);
+  m.tabSid[ws[0]!.tabs[0]!.id] = 'b'; // b was synced before it got pinned
+  const { model, close } = deriveModel(ws, m, opts({ source: 1 }));
+  assert.deepEqual(model.order, ['a']);
+  assert.equal(model.entries.b, undefined);
+  assert.deepEqual(close, [ws[1]!.tabs[1]!.id], 'only the stand-in closes');
+});
+
+test('unpinning a tab makes it a synced tab', () => {
+  const prev = modelOf(['a']);
+  const ws = windows({ 1: ['a', 'b'], 2: ['~a'] });
+  const { model } = deriveModel(ws, bound(ws, prev), opts());
+  assert.equal(model.order.length, 2);
+  assert.equal(planWindow(ws[1]!.tabs, model, make).create.length, 1);
+});
+
+test('pinning a stand-in moves the live tab there and takes it out of sync', () => {
+  const prev = modelOf(['a', 'b']);
+  const ws = windows({ 1: ['a', 'b'], 2: ['*~b', '~a'], 3: ['~a', '~b'] });
+  const { model, close, promote } = deriveModel(ws, bound(ws, prev), opts());
+  assert.equal(model.entries.b, undefined);
+  assert.equal(promote.length, 1);
+  assert.equal(promote[0]!.ghost.id, ws[1]!.tabs[0]!.id);
+  assert.equal(promote[0]!.live?.id, ws[0]!.tabs[1]!.id);
+  assert.deepEqual(close, [ws[2]!.tabs[1]!.id]);
+});
+
+test('cleanup after v0.2: copies of pinned tabs are closed, live tabs never', () => {
+  const saved = {
+    entries: {
+      mail: { url: page('mail'), title: 'mail', pinned: true },
+      docs: { url: page('docs'), title: 'docs', pinned: false },
+      a: { url: page('a'), title: 'a', pinned: false },
+    },
+  };
+  // mail was pinned in v0.2; docs is pinned in Dia but v0.2 mirrored it unpinned.
+  const ws = windows({ 1: ['*mail', '*docs', 'a'], 2: ['*~mail', '~docs', '~a'] });
+  const { close, drop } = v2Leftovers(ws, saved);
+  assert.deepEqual(close.sort(), [ws[1]!.tabs[0]!.id, ws[1]!.tabs[1]!.id].sort());
+  assert.deepEqual([...drop].sort(), ['docs', 'mail']);
 });
 
 test('closing a tab closes every copy, including the live one', () => {
@@ -257,14 +316,11 @@ test('a loading live tab does not churn its stand-ins', () => {
 });
 
 test('clicking a stand-in swaps with the live tab in another window', () => {
-  const prev = modelOf(['a', 'b'], ['a']);
-  const ws = windows({ 1: ['*a', 'b'], 2: ['*~a', '~b'] });
+  const prev = modelOf(['a', 'b']);
+  const ws = windows({ 1: ['*fav', 'a', 'b'], 2: ['*fav', '~a', '~b'] });
   const m = bound(ws, prev);
-  const plan = planSwap(ws, m, ws[1]!.tabs[0]!);
+  const plan = planSwap(ws, m, ws[1]!.tabs[1]!);
   assert.equal(plan?.kind, 'swap');
-  if (plan?.kind === 'swap') {
-    assert.equal(plan.live.id, ws[0]!.tabs[0]!.id);
-    assert.equal(plan.pinned, true);
-  }
-  assert.equal(planSwap(ws, m, ws[0]!.tabs[1]!), undefined, 'live tabs are not swapped');
+  if (plan?.kind === 'swap') assert.equal(plan.live.id, ws[0]!.tabs[1]!.id);
+  assert.equal(planSwap(ws, m, ws[0]!.tabs[2]!), undefined, 'live tabs are not swapped');
 });
