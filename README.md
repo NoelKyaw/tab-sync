@@ -4,7 +4,7 @@ Arc-style tabs for Chromium browsers: **every window shows the same regular tabs
 
 > **Status: parked. It doesn't work in Dia yet.** The sync engine works and is tested in Chrome for Testing. Dia, the browser it was built for, doesn't give extensions enough information to sync tabs per profile, so in Dia it mixes tabs between profiles. Keep it paused or uninstalled in Dia. See [Why it doesn't work in Dia](#why-it-doesnt-work-in-dia) for the findings, what Dia would need to expose, and how to re-check.
 >
-> `master` holds v0.1, the read-only side panel. This branch holds v0.2 and v0.3, the tab-bar sync.
+> The last version that behaves correctly in Dia is v0.1, the read-only side panel, at commit `45b58eb`. Check it out to use it.
 
 ## How it works
 
@@ -144,7 +144,7 @@ npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer   # or s
 
 ## History
 
-- **v0.1** (`master`): a read-only side panel listing every window's tabs, with pins shared across windows. It works in Dia, but lists all profiles' tabs together.
+- **v0.1** (`45b58eb`): a read-only side panel listing every window's tabs, with pins shared across windows. It works in Dia, but lists all profiles' tabs together.
 - **v0.2**: replaced the panel with tab-bar sync using stand-ins.
 - **v0.3**: stopped syncing pinned tabs, cleaned up v0.2's copies, and handles tabs vanishing mid-operation.
 - **Parked**: Dia doesn't expose profiles or sidebar sections. See above.
