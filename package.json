@@ -8,7 +8,8 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --test 'test/**/*.test.ts'"
+    "test": "node --test 'test/**/*.test.ts'",
+    "e2e": "npm run build && npm --prefix e2e test"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.6",
