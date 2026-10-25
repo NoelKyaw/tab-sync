@@ -19,7 +19,8 @@ const options = {
   bundle: true,
   format: 'esm',
   target: 'chrome116',
-  minify: !watch,
+  // Not minified: errors on chrome://extensions stay readable, and it's only ~25 KB.
+  minify: false,
   sourcemap: watch ? 'inline' : false,
   logLevel: 'info',
   plugins: [{ name: 'static', setup: (b) => b.onEnd(copyStatic) }],

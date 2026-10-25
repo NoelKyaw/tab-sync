@@ -84,8 +84,22 @@ function isMarked(map: Map<number, number>, id: number): boolean {
 
 let chain: Promise<void> = Promise.resolve();
 function enqueue(task: () => Promise<void>): Promise<void> {
-  chain = chain.then(task).catch((e) => console.error('[tab-sync]', e));
+  chain = chain.then(task).catch((e) => {
+    if (!isRace(e)) {
+      console.error('[tab-sync]', e);
+      return;
+    }
+    // A tab or window changed under us (closed, replaced, being dragged). Not a
+    // bug: the next pass re-reads everything and tidies up any half-done step.
+    console.debug('[tab-sync] retrying after:', String(e));
+    schedule(500);
+  });
   return chain;
+}
+
+/** Errors that only mean the browser's tabs changed between reading and acting. */
+function isRace(e: unknown): boolean {
+  return /No (tab|window) with id|cannot be edited right now/i.test(String(e));
 }
 
 let source: number | undefined;
